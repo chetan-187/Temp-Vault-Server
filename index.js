@@ -19,8 +19,8 @@ mongoose.connect(process.env.MONGO_URL)
 
 app.use(express.json());
 
-const port = process.env.PORT || 5000;
+const port = process.env.PORT || 8080;
 
 app.listen(port, () => {
-    console.log(`Server started at ${process.env.PORT}`);
+    console.log(`Server started at ${port}`);
 });
