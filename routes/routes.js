@@ -1,14 +1,33 @@
 const express = require('express');
 const router = express.Router();
 const cron = require('node-cron');
+const crypto = require("crypto");
+require('dotenv').config();
+const redis = require("ioredis");
+
+const client = redis.createClient({
+    host: process.env.REDIS_HOSTNAME,
+    port: process.env.REDIS_PORT,
+    username: '',
+    password: process.env.REDIS_PASSWORD
+});
+
+client.on("connect", () => {
+    console.log("Connected to redis instance !");
+});
 
 const Data = require('../models/data.js');
 
+const algorithm = "aes-256-cbc";
+const key = Buffer.from(process.env.KEY);
+const iv = crypto.randomBytes(16);
+
 router.post('/insert', (req, res) => {
     console.log('Data received Succesfully -> ', req.body);
+    const CipherText = encryptData(req.body.cipherText);
     const newData = new Data({
         uuid: req.body.uuid,
-        cipherText: req.body.cipherText,
+        cipherText: CipherText,
         expirationTime: req.body.expirationTime,
         viewOnce: req.body.viewOnce,
         dataViewed: false
@@ -17,6 +36,7 @@ router.post('/insert', (req, res) => {
     newData.save()
         .then(data => {
             res.json({ success: true });
+            incrementPostRequestCount();
         })
         .catch((error) => {
             res.status(500).json(error);
@@ -28,17 +48,33 @@ router.get('/get/:uuid', async (req, res) => {
     try {
         const data = await Data.findOne({ uuid });
         const response = await createResponse(data, uuid);
-        res.json(response); s
+        return res.json(response);
     } catch (error) {
-        res.status(500).json(error);
+        return res.status(500).json(error);
+    }
+})
+
+router.get('/get-count', async (req, res) => {
+    const uuid = req.params.uuid;
+    try {
+        client.get('postRequestCount', function (err, result) {
+            const count = parseInt(result);
+            return res.json({ count: count })
+        });
+    } catch (error) {
+        return res.status(500).json(error);
     }
 })
 
 router.get('/delete/:uuid', function (req, res) {
     try {
-        Data.findOneAndDelete(req.params.uuid)
-            .then(data => res.json({ success: true }))
-            .catch(error => res.status(500).json(error))
+        Data.findOneAndDelete({ uuid: req.params.uuid })
+            .then(data => {
+                res.json({ data })
+            })
+            .catch(error => {
+                res.status(500).json(error)
+            })
     }
     catch (error) {
         res.status(500).json(error);
@@ -79,8 +115,43 @@ const createResponse = async (data, uuid) => {
     if (data.dataViewed === false)
         await updateViewedStatus(uuid);
 
-    console.log("Sending data while link is not expired ", data);
-    return data;
+    const decryptedData = decryptData(data.cipherText);
+    const responseToSend = { data: decryptedData, viewOnce: data.viewOnce, expirationTime: data.expirationTime };
+    console.log("Sending data while link is not expired ", responseToSend);
+    return responseToSend;
+}
+
+const encryptData = (text) => {
+    const cipher = crypto.createCipheriv(algorithm, key, iv);
+    let encrypted = cipher.update(text);
+    encrypted = Buffer.concat([encrypted, cipher.final()]);
+    return encrypted.toString('hex');
+}
+
+const decryptData = (text) => {
+    const encryptedText = Buffer.from(text, 'hex');
+    const decipher = crypto.createDecipheriv(algorithm, key, iv);
+    let decrypted;
+    try {
+        decrypted = decipher.update(encryptedText);
+    } catch (err) {
+        console.error('Error during decryption:', err);
+        return null;
+    }
+    decrypted = Buffer.concat([decrypted, decipher.final()]);
+    return decrypted.toString();
+}
+
+const incrementPostRequestCount = () => {
+    client.incr('postRequestCount', (err, count) => {
+        if (err) {
+            console.error(err);
+            throw err;
+            return;
+        }
+        console.log(`Total post requests: ${count}`);
+        return;
+    });
 }
 
 module.exports = router;
