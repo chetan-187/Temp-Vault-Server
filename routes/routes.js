@@ -24,13 +24,14 @@ const iv = crypto.randomBytes(16);
 
 router.post('/insert', (req, res) => {
     console.log('Data received Succesfully -> ', req.body);
-    const CipherText = encryptData(req.body.cipherText);
+    const [CipherText, IV] = encryptData(req.body.cipherText);
     const newData = new Data({
         uuid: req.body.uuid,
         cipherText: CipherText,
         expirationTime: req.body.expirationTime,
         viewOnce: req.body.viewOnce,
-        dataViewed: false
+        dataViewed: false,
+        initializationVector: IV
     });
 
     newData.save()
@@ -81,7 +82,7 @@ router.get('/delete/:uuid', function (req, res) {
     }
 })
 
-cron.schedule('00 00 * * *', async () => {
+cron.schedule('58 23 * * *', async () => {
     console.log('------------Executing cron job to delete expired documents----------');
     try {
         const now = Date.now();
@@ -115,20 +116,22 @@ const createResponse = async (data, uuid) => {
     if (data.dataViewed === false)
         await updateViewedStatus(uuid);
 
-    const decryptedData = decryptData(data.cipherText);
+    const decryptedData = decryptData(data.cipherText, data.initializationVector);
     const responseToSend = { data: decryptedData, viewOnce: data.viewOnce, expirationTime: data.expirationTime };
     console.log("Sending data while link is not expired ", responseToSend);
     return responseToSend;
 }
 
 const encryptData = (text) => {
+    const iv = crypto.randomBytes(16);
     const cipher = crypto.createCipheriv(algorithm, key, iv);
     let encrypted = cipher.update(text);
     encrypted = Buffer.concat([encrypted, cipher.final()]);
-    return encrypted.toString('hex');
+    const data = encrypted.toString('hex');
+    return [data, iv ];
 }
 
-const decryptData = (text) => {
+const decryptData = (text, iv) => {
     const encryptedText = Buffer.from(text, 'hex');
     const decipher = crypto.createDecipheriv(algorithm, key, iv);
     let decrypted;

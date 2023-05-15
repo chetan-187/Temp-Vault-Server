@@ -21,6 +21,9 @@ const data = new mongoose.Schema(
         },
         dataViewed: {
             type: Boolean
+        },
+        initializationVector: {
+            type: Buffer
         }
     },
     {
