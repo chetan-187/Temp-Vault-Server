@@ -82,7 +82,7 @@ router.get('/delete/:uuid', function (req, res) {
     }
 })
 
-cron.schedule('58 23 * * *', async () => {
+cron.schedule('00 00 * * *', async () => {
     console.log('------------Executing cron job to delete expired documents----------');
     try {
         const now = Date.now();
